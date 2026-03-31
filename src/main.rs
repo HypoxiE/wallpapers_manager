@@ -1,10 +1,8 @@
 use iced::Length::{FillPortion, Fill};
-use iced::padding::all;
 use iced::widget::{Column, button, checkbox, column, container, image, row, scrollable, text, toggler, text_input};
 use iced::{keyboard, Subscription, Element, Alignment, Length};
 
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::{fs};
 use std::path::{PathBuf};
 
