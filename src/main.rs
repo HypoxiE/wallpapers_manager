@@ -1,4 +1,5 @@
 use iced::Length::{FillPortion, Fill};
+use iced::padding::all;
 use iced::widget::{Column, button, checkbox, column, container, image, row, scrollable, text, toggler, text_input};
 use iced::{keyboard, Subscription, Element, Alignment, Length};
 
@@ -151,31 +152,28 @@ impl WallpapersManager {
 
 				//fill names_frame
 				{
-					let extension_selected_file = self.all_wallpapers.get(&self.selected_file).unwrap().0.clone().extension().unwrap().to_string_lossy().into_owned();
-
 					// name: (num, ext, fullname)
 					let mut unique_names = HashMap::<String, (u32, String, String)>::new();
 
-					for (filename, (path, _)) in self.all_wallpapers.iter() {
+					for (filestem, (path, _)) in self.all_wallpapers.iter() {
 
-						if !filename.contains(&self.file_name) || filename.starts_with("_") {
+						if !filestem.contains(&self.file_name) || filestem.starts_with("_") {
 							continue;
 						}
-						
-						let stem = path.file_stem().unwrap().to_str().unwrap();
+
 						let extension = path.extension().unwrap().to_string_lossy().into_owned();
 
-						let (name, index_str) = stem.rsplit_once('_').unwrap();
+						let (name, index_str) = filestem.rsplit_once('_').unwrap();
 						let index = index_str.parse::<u32>().ok().expect(&format!("Index {} is not integer", index_str));
 
 						if let Some((ind, ex, fname)) = unique_names.get_mut(name) {
 							if *ind < index {
 								*ind = index;
 								*ex = extension;
-								*fname = format!("{}_{}.{}", name, index+1, extension_selected_file);
+								*fname = format!("{}_{}", name, index+1);
 							}
 						} else {
-							unique_names.insert(name.to_string(), (index, extension, format!("{}_{}.{}", name, index+1, extension_selected_file)));
+							unique_names.insert(name.to_string(), (index, extension, format!("{}_{}", name, index+1)));
 						}
 					}
 
@@ -196,7 +194,7 @@ impl WallpapersManager {
 			}.height(Fill);
 
 		let mut img = container(text("")).center_x(Fill).center_y(Fill);
-		if self.selected_file != PathBuf::new() {
+		if self.selected_file != "" {
 			img = container(image(self.all_wallpapers.get(&self.selected_file).unwrap().0.clone())).center_x(Fill).center_y(Fill)
 		}
 
@@ -251,9 +249,11 @@ impl WallpapersManager {
 			}
 			Message::ConfirmNameChange => {
 				let old_path: PathBuf = self.all_wallpapers.get(&self.selected_file).unwrap().0.clone();
-				let new_path: PathBuf = old_path.with_file_name(&self.file_name);
-				let old_conf_path = old_path.with_extension("conf");
-				let new_conf_path = new_path.with_extension("conf");
+				let ext: String = old_path.extension().unwrap().to_string_lossy().into_owned();
+
+				let new_path: PathBuf = old_path.with_file_name(format!("{}.{}", self.file_name, ext));
+				let old_conf_path: PathBuf = old_path.with_extension("conf");
+				let new_conf_path: PathBuf = new_path.with_extension("conf");
 
 				let old_selected_file = self.selected_file.to_owned();
 				self.selected_file = self.file_name.to_owned();
@@ -274,7 +274,7 @@ impl WallpapersManager {
 					let selected_file_path = self.all_wallpapers.get(&self.selected_file).unwrap().0.clone();
 					let tag_path = self.all_categories.get(&tag_name).unwrap();
 
-					let _ = symlink(selected_file_path, tag_path.join(&self.selected_file)).expect("symlink cannot create");
+					let _ = symlink(&selected_file_path, tag_path.join(&selected_file_path.file_name().unwrap().to_string_lossy().into_owned())).expect("symlink cannot create");
 				} else {
 					let path: &PathBuf = self.all_wallpapers.get(&self.selected_file).unwrap().1.get(&tag_name).unwrap();
 					let _ = fs::remove_file(path);
@@ -285,11 +285,13 @@ impl WallpapersManager {
 	}
 
 	fn subscription(&self) -> Subscription<Message> {
+		
 		keyboard::listen().filter_map(|event| {
 			match event {
-				keyboard::Event::KeyPressed { key, .. } => {
-					match key {
-						keyboard::Key::Character(ref c) if c == "i" || c == "I" => {
+				keyboard::Event::KeyPressed { physical_key, .. } => {
+					match physical_key {
+						keyboard::key::Physical::Code(code) 
+						if code == keyboard::key::Code::KeyI => {
 							Some(Message::ToggleSelectorKey)
 						}
 						_ => None,
@@ -307,8 +309,8 @@ impl WallpapersManager {
 		let mut categories: HashMap<String, PathBuf> = HashMap::<String, PathBuf>::new();
 
 		for entry in fs::read_dir(self.wallpapers_dir.join("all")).unwrap().flatten() {
-
-			let file_name = entry.file_name();
+			let path = entry.path();
+			let file_name = path.file_name().unwrap();
 			if file_name.to_string_lossy().starts_with('.') || file_name.to_string_lossy().ends_with(".conf") {
 				continue;
 			}
@@ -319,10 +321,10 @@ impl WallpapersManager {
 			if !file_type.is_file() {
 				continue;
 			}
-			let file_name: String = file_name.to_string_lossy().into_owned();
+			let file_stem: String = path.file_stem().unwrap().to_string_lossy().into_owned();
 			let file_path: PathBuf = entry.path();
 
-			wallpapers.insert(file_name, (file_path, HashMap::<String, PathBuf>::new()));
+			wallpapers.insert(file_stem, (file_path, HashMap::<String, PathBuf>::new()));
 		}
 
 		for tag in fs::read_dir(&self.wallpapers_dir).unwrap().flatten() {
@@ -340,7 +342,10 @@ impl WallpapersManager {
 			categories.insert(tag_name.to_owned(), tag.path());
 
 			for wallpaper in fs::read_dir(tag.path()).unwrap().flatten() {
-				let file_name: OsString = wallpaper.file_name();
+				let path = wallpaper.path();
+				let file_name = path.file_name().unwrap();
+				let file_stem = path.file_stem().unwrap();
+
 				if file_name.to_string_lossy().starts_with('.') {
 					continue;
 				}
@@ -372,12 +377,14 @@ impl WallpapersManager {
 					let _ = fs::remove_file(&wallpaper.path());
 					continue;
 				}
-				if target_abs.file_name() != Some(&file_name) {
+				//println!("{}\n{:?}", &file_stem.to_string_lossy().into_owned(), wallpapers);
+
+				if target_abs != wallpapers.get(&file_stem.to_string_lossy().into_owned()).unwrap().0 {
 					let _ = fs::remove_file(&wallpaper.path());
 					continue;
 				}
 
-				match wallpapers.get_mut(&file_name.to_string_lossy().into_owned()) {
+				match wallpapers.get_mut(&file_stem.to_string_lossy().into_owned()) {
 					Some(wallpaper_data) => {
 						wallpaper_data.1.insert(tag_name.to_owned(), wallpaper.path());
 					},
