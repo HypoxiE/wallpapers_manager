@@ -255,11 +255,17 @@ impl WallpapersManager {
 				let old_conf_path = old_path.with_extension("conf");
 				let new_conf_path = new_path.with_extension("conf");
 
+				let old_selected_file = self.selected_file.to_owned();
 				self.selected_file = self.file_name.to_owned();
 				fs::rename(old_path, new_path).expect("Cannot rename file");
-
 				if old_conf_path.exists() {
 					fs::rename(old_conf_path, new_conf_path).expect("Cannot rename file");
+				}
+
+				let categories: HashMap<String, PathBuf> = self.all_wallpapers.get(&old_selected_file).unwrap().1.clone();
+				self.fetch_wallpapers();
+				for (category, _) in categories {
+					self.update(Message::ToggleTag(category, true));
 				}
 			}
 
